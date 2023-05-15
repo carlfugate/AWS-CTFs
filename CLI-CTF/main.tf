@@ -35,13 +35,6 @@ output "awscli_ctf_user_secret_access_key" {
   sensitive = true
 }
 
-#SSH Key
-
-resource "tls_private_key" "ssh_key" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
-
 #CTF Bastion/Jumphost
 resource "aws_instance" "ctf_jumphost_ec2" {
   ami                         = data.aws_ami.latest_amazon_linux.id
@@ -55,24 +48,10 @@ resource "aws_instance" "ctf_jumphost_ec2" {
     yum update -y
     yum install -y jq
   EOF
-  key_name = tls_public_key.ssh_key.id
-
-
 
   tags = {
     Name = "CTF_JumpHost_Only"
   }
-}
-
-output "ssh_public_key" {
-  value = tls_public_key.ssh_key.public_key_pem
-  description = "SSH public key for EC2 instance"
-}
-
-output "ssh_private_key" {
-  value       = tls_private_key.ssh_key.private_key_pem
-  description = "SSH private key for EC2 instance"
-  sensitive   = true
 }
 
 
