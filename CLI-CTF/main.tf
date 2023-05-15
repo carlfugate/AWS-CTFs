@@ -5,38 +5,90 @@ locals {
   rds_user     = "ctfd_admin"
   rds_pass     = "StrongPasswordHere"
   region       = "us-east-1"
-  current_date = formatdate("MMDDYYYY", timestamp())
+  current_date = formatdate("MMDDYYYYhhmm", timestamp())
 }
 
 provider "aws" {
   region = "us-east-1" # Set your desired AWS region
 }
 
+#Create the CTF user account
+resource "aws_iam_user" "awscli_ctf_user" {
+  name = "awscli-ctf-user"
+}
+
+resource "aws_iam_user_policy_attachment" "view_only_policy_attachment" {
+  user       = aws_iam_user.awscli_ctf_user.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+resource "aws_iam_access_key" "awscli_ctf_user_access_key" {
+  user = aws_iam_user.awscli_ctf_user.name
+}
+
+output "awscli_ctf_user_access_key_id" {
+  value = aws_iam_access_key.awscli_ctf_user_access_key.id
+}
+
+output "awscli_ctf_user_secret_access_key" {
+  value     = aws_iam_access_key.awscli_ctf_user_access_key.secret
+  sensitive = true
+}
+
+#SSH Key
+
+resource "tls_private_key" "ssh_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+#CTF Bastion/Jumphost
+resource "aws_instance" "ctf_jumphost_ec2" {
+  ami                         = data.aws_ami.latest_amazon_linux.id
+  instance_type               = "t2.micro"                      # Replace with the desired instance type
+  subnet_id                   = aws_subnet.ctf_public_subnet.id #put in Public Subnet
+  associate_public_ip_address = true
+  vpc_security_group_ids      = [aws_security_group.ctf_web_sg.id]
+  user_data                   = <<-EOF
+    #!/bin/bash
+    sudo su
+    yum update -y
+    yum install -y jq
+  EOF
+  key_name = tls_public_key.ssh_key.id
+
+
+
+  tags = {
+    Name = "CTF_JumpHost_Only"
+  }
+}
+
+output "ssh_public_key" {
+  value = tls_public_key.ssh_key.public_key_pem
+  description = "SSH public key for EC2 instance"
+}
+
+output "ssh_private_key" {
+  value       = tls_private_key.ssh_key.private_key_pem
+  description = "SSH private key for EC2 instance"
+  sensitive   = true
+}
+
+
+###########################################
+######### Challenges Resources ############
+###########################################
+
 #Create the Hello-World Bucket
 resource "aws_s3_bucket" "S3HelloWorldBucket" {
-  bucket = "bucketsofunsandomstuffasdf1234567890-flag-h3llow0rld" # Flag Bucket
+  bucket = "bucketsofun-${local.current_date}-flag-h3llow0rld" # Flag Bucket
   #bucket = "testbucket-jslkdfja123810923u0us08afd8af08sad0"
   tags = {
     Note = "Great_Job_you_found_the_first_flag"
   }
 }
 
-resource "aws_s3_bucket" "awsctf_files_bucket" {
-  bucket = "awsctffiles-bucket-${local.current_date}-1234567890"
-  tags = {
-    Note = "Nothing_to_see_here_i_promise"
-  }
-}
-
-
-#Upload CTF Files
-
-
-resource "aws_s3_object" "awsctf_files_bucket_ctf_flag_png" {
-  bucket = aws_s3_bucket.awsctf_files_bucket.id
-  key    = "download-me.png"
-  source = "./download-me.png" # Set the local file path
-}
 
 #Setup CTF Network
 
@@ -78,7 +130,7 @@ resource "aws_route_table_association" "public_subnet" {
 resource "aws_subnet" "ctf_public_subnet" {
   vpc_id            = aws_vpc.this.id
   cidr_block        = "10.255.255.0/25"
-  availability_zone = "us-east-1a" # Set the desired availability zone
+  availability_zone = "us-east-1c" # Set the desired availability zone
   tags = {
     Name = "Public Subnet"
   }
@@ -97,7 +149,8 @@ resource "aws_eip" "ctf_ec2_web_eip" {
   vpc = true
 }
 
-#Create an EC2 Web Server
+#Create an EC2 Web Server in deployed region where the user needs to find the webpage
+#to get the flag
 data "aws_ami" "latest_amazon_linux" {
   most_recent = true
   owners      = ["amazon"]
@@ -157,4 +210,26 @@ resource "aws_security_group" "ctf_web_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+
+#Create an EC2 in another region that exists soley as a flag for the Far Away challenge
+
+
+
+#Bucket with random prefixes
+
+#Upload CTF Files
+
+resource "aws_s3_bucket" "awsctf_random_prefixes_bucket" {
+  bucket = "awsctffiles-bucket-${local.current_date}-1234567890"
+  tags = {
+    Note = "Nothing_to_see_here_i_promise"
+  }
+}
+
+resource "aws_s3_object" "awsctf_files_bucket_ctf_flag_png" {
+  bucket = aws_s3_bucket.awsctf_random_prefixes_bucket.id
+  key    = "/maze-direction-left/maze-up/download-me.png"
+  source = "./download-me.png" # Set the local file path
 }
